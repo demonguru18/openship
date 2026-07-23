@@ -1221,6 +1221,7 @@ const DeployTargetStep: React.FC<DeployTargetStepProps> = ({ targets, onContinue
   const hasAnyDeployTarget = deployTargetOptions.length > 0;
   const canContinue = ready && (
     config.deployTarget === "cloud" ||
+    config.deployTarget === "local" ||
     (config.deployTarget === "server" && !!config.serverId && hasServers)
   );
 
