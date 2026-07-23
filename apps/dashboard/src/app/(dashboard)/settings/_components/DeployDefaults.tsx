@@ -52,8 +52,14 @@ export function DeployDefaults() {
   // we don't auto-pick the first server because that hides the choice
   // from the user - they should select one explicitly.
   async function save(nextTarget: DefaultDeployTarget | null, nextServerId: string | null) {
+    // Selecting "My Server" without an id yet: reveal the sub-picker first.
+    // Previously we toasted and returned without setting target, so the
+    // server list never appeared (chicken-and-egg).
     if (nextTarget === "server" && !nextServerId) {
-      showToast(t.settings.deployDefaults.toast.pickServer, "error", t.settings.common.toast.defaults);
+      setTarget("server");
+      if (servers.length === 1) {
+        return save("server", servers[0].id);
+      }
       return;
     }
     setSaving(true);

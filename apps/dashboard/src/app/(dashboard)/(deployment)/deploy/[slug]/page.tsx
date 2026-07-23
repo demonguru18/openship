@@ -59,7 +59,7 @@ const DeployRepository: React.FC = () => {
     const params = useParams();
     const slug = params.slug as string;
     const { config, initializeFromRepo, initializeFromLocal, initializeFromUpload, initializeFromProject, updateConfig } = useDeployment();
-    const { deployMode } = usePlatform();
+    const { deployMode, selfHosted } = usePlatform();
     const { t } = useI18n();
     const searchParams = useSearchParams();
     const force = searchParams.get("force") || undefined;
@@ -72,6 +72,9 @@ const DeployRepository: React.FC = () => {
     // Edit-from-Runtime-tab: hydrate from SAVED settings, skip repo re-detection.
     const isConfigEdit = searchParams.get("mode") === "config" && !!projectId;
     const isDesktop = deployMode === "desktop";
+    // Desktop always had the target picker. Self-hosted web was skipping it and
+    // leaving DEFAULT_CONFIG.deployTarget="cloud", which forced the Cloud modal.
+    const showTargetPicker = isDesktop || selfHosted;
 
     // Decode the slug at render time so the skeleton can name the source
     // ("Fetching owner/repo from GitHub") on the very first paint, before the
@@ -108,19 +111,18 @@ const DeployRepository: React.FC = () => {
     // Desktop-only: resolve available deploy targets (server / cloud)
     const targets = useDesktopTargets();
 
-    // Step: "target" = pick build/deploy target, "config" = project settings
-    // Only desktop gets step 1. Non-desktop skips straight to config.
+    // Step: "target" = pick build/deploy target, "config" = project settings.
+    // Desktop always shows step 1. Self-hosted web must too — otherwise
+    // deployTarget stays on DEFAULT_CONFIG "cloud" and Deploy opens the
+    // Connect Openship Cloud modal. Openship Cloud SaaS web can still skip.
     //
-    // Returning users land directly on "config": we read their soft
-    // last-pick from localStorage SYNCHRONOUSLY in the useState initializer
-    // and skip the target picker entirely. Avoids the brief flash of
-    // "Where do you want to deploy?" + spinner that DeployTargetStep
-    // would otherwise show while waiting for settingsApi.get() to resolve.
-    // The settings-API default is still authoritative and gets applied
-    // if the user clicks "edit" to reopen the picker.
+    // Returning desktop users land directly on "config" via last-pick.
+    // Self-hosted web always opens the target step so Settings defaults
+    // (DeployTargetStep) win over a stale last-pick of "cloud".
     const [step, setStep] = useState<"target" | "config">(() => {
-        if (!isDesktop) return "config";
+        if (!showTargetPicker) return "config";
         if (typeof window === "undefined") return "target";
+        if (selfHosted && !isDesktop) return "target";
         return lastPickStore.read() ? "config" : "target";
     });
 
@@ -136,7 +138,10 @@ const DeployRepository: React.FC = () => {
     const appliedLastPickRef = useRef(false);
 
     const applyLastPick = useCallback(() => {
-        if (!isDesktop || appliedLastPickRef.current) return;
+        if (!showTargetPicker || appliedLastPickRef.current) return;
+        // Self-hosted web: DeployTargetStep applies settings-API default with
+        // higher priority. Seeding last-pick here would re-stick "cloud".
+        if (selfHosted && !isDesktop) return;
         const last = typeof window !== "undefined" ? lastPickStore.read() : null;
         if (!last) return;
         appliedLastPickRef.current = true;
@@ -147,7 +152,7 @@ const DeployRepository: React.FC = () => {
         } else if (last.target === "local") {
             updateConfig({ deployTarget: "local", serverId: undefined });
         }
-    }, [isDesktop, updateConfig]);
+    }, [showTargetPicker, selfHosted, isDesktop, updateConfig]);
 
     useLayoutEffect(() => {
         applyLastPick();
@@ -317,11 +322,12 @@ const DeployRepository: React.FC = () => {
 
     return (
         <PageContainer>
-                {/* Step 1: Deploy target picker - centered onboarding style (desktop only).
+                {/* Step 1: Deploy target picker - centered onboarding style.
+                    Shown on desktop and on self-hosted web (see showTargetPicker).
                     DeployTargetStep owns its own max-width: it widens to two columns
                     when a right-hand panel (cloud power / server runtime) is shown, and
                     stays narrow single-column otherwise. The page just centers it. */}
-                {step === "target" && isDesktop && (
+                {step === "target" && showTargetPicker && (
                     <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] py-8">
                         <DeployTargetStep
                             targets={targets}
@@ -335,8 +341,8 @@ const DeployRepository: React.FC = () => {
                 {step === "config" && (
                     <div className="grid lg:grid-cols-[1fr_340px] gap-6">
                         <div className="space-y-5">
-                            {/* Target summary bar - click to go back to step 1 (desktop only) */}
-                            {isDesktop && (
+                            {/* Target summary bar - click to go back to step 1 */}
+                            {showTargetPicker && (
                                 <DeployTargetSummary
                                     deployTarget={config.deployTarget}
                                     buildStrategy={config.buildStrategy}

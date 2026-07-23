@@ -1015,6 +1015,10 @@ const DeployTargetStep: React.FC<DeployTargetStepProps> = ({ targets, onContinue
       updates.serverId = undefined;
       updates.buildStrategy = "server";
     }
+    if (target === "local") {
+      updates.serverId = undefined;
+      updates.buildStrategy = "local";
+    }
     if (target === "server") {
       // Restore the previously-chosen server (or auto-pick the only one) so the
       // runtime panel reappears instead of vanishing until a manual re-pick.
@@ -1038,6 +1042,17 @@ const DeployTargetStep: React.FC<DeployTargetStepProps> = ({ targets, onContinue
     label: string;
     description: string;
   }> = [];
+
+  // Self-hosted: offer This Machine (the OpenShip host) so web dashboards can
+  // pick local without going through Settings alone.
+  if (selfHosted) {
+    deployTargetOptions.push({
+      value: "local",
+      icon: <Cpu className="size-5" />,
+      label: ts.build.localLabel,
+      description: ts.build.localDesc,
+    });
+  }
 
   if (hasServers) {
     if (isSingleServer) {
