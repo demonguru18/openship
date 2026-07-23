@@ -252,10 +252,20 @@ function gradleInstallPlan(profile: EnvironmentProfile): ToolchainInstallPlan {
 
 function dotnetInstallPlan(profile: EnvironmentProfile): ToolchainInstallPlan {
   if (profile.os === "linux") {
+    const ensureCurl =
+      profile.packageManager === "apt"
+        ? "apt-get update -qq && apt-get install -y -qq curl ca-certificates"
+        : profile.packageManager === "dnf"
+          ? "dnf install -y curl ca-certificates"
+          : profile.packageManager === "yum"
+            ? "yum install -y curl ca-certificates"
+            : profile.packageManager === "apk"
+              ? "apk add --no-cache curl ca-certificates"
+              : "true";
     return {
       supported: true,
       installCommand:
-        "curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/local/share/dotnet && ln -sf /usr/local/share/dotnet/dotnet /usr/local/bin/dotnet",
+        `${ensureCurl} && curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/local/share/dotnet && ln -sf /usr/local/share/dotnet/dotnet /usr/local/bin/dotnet`,
       verifyCommand: "dotnet --version",
     };
   }
