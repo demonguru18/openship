@@ -272,8 +272,8 @@ async function createSelfHostedPlatform(config: PlatformConfig): Promise<Platfor
   // raw executor — its installer elevates itself when needed (avoid double sudo).
   let privilegedExecutor = executor;
   {
-    const { detectEnvironment } = await import("./system/environment");
-    const profile = await detectEnvironment(executor);
+    const { resolveEnvironment } = await import("./system/environment");
+    const profile = await resolveEnvironment(executor);
     if (profile.canSudo) {
       const { elevatedExecutor } = await import("./system/elevated-executor");
       privilegedExecutor = elevatedExecutor(executor);
