@@ -266,18 +266,40 @@ async function createSelfHostedPlatform(config: PlatformConfig): Promise<Platfor
     provisionLock: config.provisionLock,
   });
 
+  // Bare deploys write systemd units under /etc/systemd/system and OpenResty
+  // conf under /usr/local/openresty. When the SSH user is non-root but has
+  // passwordless sudo, elevate those mutating ops. SystemManager keeps the
+  // raw executor — its installer elevates itself when needed (avoid double sudo).
+  let privilegedExecutor = executor;
+  {
+    const { detectEnvironment } = await import("./system/environment");
+    const profile = await detectEnvironment(executor);
+    if (profile.canSudo) {
+      const { elevatedExecutor } = await import("./system/elevated-executor");
+      privilegedExecutor = elevatedExecutor(executor);
+    }
+  }
+
   // Runtime
   let runtime: RuntimeAdapter;
   if (runtimeMode === "bare") {
     const { BareRuntime } = await import("./runtime/bare");
-    runtime = new BareRuntime({ ...config.bare, executor, systemManager: system });
+    runtime = new BareRuntime({
+      ...config.bare,
+      executor: privilegedExecutor,
+      systemManager: system,
+    });
   } else {
     const { DockerRuntime } = await import("./runtime/docker");
     runtime = await DockerRuntime.create(config.docker, system, config.provisionLock);
   }
 
   // Infrastructure - runtime implies the reverse proxy
-  const { routing, ssl } = await createInfraProvider(runtimeMode, config, executor);
+  const { routing, ssl } = await createInfraProvider(
+    runtimeMode,
+    config,
+    privilegedExecutor,
+  );
 
   return {
     target: "selfhosted",
