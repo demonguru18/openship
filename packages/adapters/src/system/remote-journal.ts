@@ -31,10 +31,10 @@ import { isRetryableRemoteConnectionError } from "./errors";
 /** Bump when the wrapper script changes — forces a redeploy on the next ensure. */
 export const OPSH_RUN_VERSION = 1;
 
-/** Default remote base dir owning bin/ + ops/. Mirrors apps/api's OPENSHIP_DIR
- *  (openship-server-store.ts) so adapter-layer callers don't cross the layer
- *  boundary to journal. Keep the two in sync. */
-export const DEFAULT_JOURNAL_BASE = "/root/.openship";
+/** Default remote base dir owning bin/ + ops/. Prefer a path writable by a
+ *  non-root SSH deploy user (passwordless sudo). OpenShip historically used
+ *  `/root/.openship`, which breaks promote/systemd activate as `administrator`. */
+export const DEFAULT_JOURNAL_BASE = "/opt/openship/.openship";
 
 /**
  * Same non-interactive env both executors prepend to plain `exec()`, applied to
@@ -53,7 +53,7 @@ const OPSH_RUN_SCRIPT = `#!/bin/sh
 VERSION=${OPSH_RUN_VERSION}
 
 BASE="$OPSH_BASE"
-[ -z "$BASE" ] && BASE=/root/.openship
+[ -z "$BASE" ] && BASE=/opt/openship/.openship
 OPS="$BASE/ops"
 
 if [ "$1" = "--version" ]; then echo "$VERSION"; exit 0; fi

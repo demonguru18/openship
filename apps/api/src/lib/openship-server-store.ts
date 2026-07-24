@@ -1,9 +1,10 @@
 /**
- * The single owner of the `/root/.openship/` folder on a target server.
+ * The single owner of the `/opt/openship/.openship/` folder on a target server.
  *
  * Everything Openship persists ON a server (mail state, the project manifest)
- * lives in this one root-only directory so it's the server's self-describing
- * source of truth — survive-the-orchestrator state for disaster recovery.
+ * lives in this directory. Historically this was `/root/.openship` (root SSH
+ * only); non-root deploy users with passwordless sudo use this path under the
+ * Openship workdir instead.
  *
  * This module owns ONLY the storage mechanics: ensuring the folder exists and
  * atomic file read/write/remove over an SSH `CommandExecutor`. Domain modules
@@ -13,8 +14,9 @@
 
 import type { CommandExecutor } from "@repo/adapters";
 
-/** The one folder. Nothing else hard-codes this path. */
-export const OPENSHIP_DIR = "/root/.openship";
+/** The one folder. Nothing else hard-codes this path. Keep in sync with
+ *  adapters `DEFAULT_JOURNAL_BASE`. */
+export const OPENSHIP_DIR = "/opt/openship/.openship";
 
 /**
  * Ensure the `.openship` dir exists, root-only (0700). Idempotent. THE single
