@@ -18,10 +18,17 @@ import type { ProcessSupervisor, SupervisorDeployOpts } from "./types";
 import { sq, parseLogLevel } from "../build-pipeline";
 import { probeListeningPort } from "../port-conflict";
 import { execReliable } from "../../system/remote-journal";
+import { elevateCommand } from "../../system/elevated-executor";
 import { DeployError } from "@repo/core";
 
 /** Prefix for all openship systemd units */
 const UNIT_PREFIX = "openship";
+
+function parentDir(path: string): string {
+  const idx = path.lastIndexOf("/");
+  if (idx < 0) return ".";
+  return idx === 0 ? "/" : path.slice(0, idx);
+}
 
 /**
  * Escape an env value for a double-quoted systemd `Environment=` assignment.
@@ -84,6 +91,21 @@ export class SystemdSupervisor implements ProcessSupervisor {
     await this.executor.rm(this.artifactFile(id));
   }
 
+  /** systemctl / unit-file ops need root; workDir artifacts stay as the SSH user. */
+  private rootExec(command: string, opts?: { timeout?: number }): Promise<string> {
+    return this.executor.exec(elevateCommand(command), opts);
+  }
+
+  private async rootWriteFile(path: string, content: string): Promise<void> {
+    const tmp = `/tmp/.openship-unit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    await this.executor.writeFile(tmp, content);
+    await this.rootExec(`mkdir -p ${sq(parentDir(path))} && mv -f ${sq(tmp)} ${sq(path)}`);
+  }
+
+  private async rootRm(path: string): Promise<void> {
+    await this.rootExec(`rm -rf ${sq(path)}`);
+  }
+
   /**
    * Build a systemd unit file contents string.
    *
@@ -125,17 +147,17 @@ WantedBy=multi-user.target
     const unitPath = this.unitPath(opts.deploymentId);
     const unitName = this.unitName(opts.deploymentId);
 
-    // Write the unit file
-    await this.executor.writeFile(unitPath, unitContent);
+    // Write the unit file (elevated — /etc/systemd/system is root-owned)
+    await this.rootWriteFile(unitPath, unitContent);
 
     // Reload systemd to pick up the new unit (idempotent), then enable + start.
     // `enable --now` is the activation COMMIT — journal it exactly-once so a
     // drop during service start doesn't leave the retry re-issuing it.
-    await this.executor.exec("systemctl daemon-reload");
+    await this.rootExec("systemctl daemon-reload");
     await execReliable(
       this.executor,
       `deploy:${opts.deploymentId}:activate`,
-      `systemctl enable --now ${sq(unitName)}`,
+      elevateCommand(`systemctl enable --now ${sq(unitName)}`),
     );
 
     // Track the artifact path for cleanup
@@ -184,7 +206,7 @@ WantedBy=multi-user.target
   async stop(deploymentId: string): Promise<void> {
     const unitName = this.unitName(deploymentId);
     try {
-      await this.executor.exec(`systemctl stop ${sq(unitName)} 2>/dev/null || true`);
+      await this.rootExec(`systemctl stop ${sq(unitName)} 2>/dev/null || true`);
     } catch {
       // Unit may not exist - that's OK
     }
@@ -192,12 +214,12 @@ WantedBy=multi-user.target
 
   async start(deploymentId: string): Promise<void> {
     const unitName = this.unitName(deploymentId);
-    await this.executor.exec(`systemctl start ${sq(unitName)}`);
+    await this.rootExec(`systemctl start ${sq(unitName)}`);
   }
 
   async restart(deploymentId: string): Promise<void> {
     const unitName = this.unitName(deploymentId);
-    await this.executor.exec(`systemctl restart ${sq(unitName)}`);
+    await this.rootExec(`systemctl restart ${sq(unitName)}`);
   }
 
   async destroy(deploymentId: string): Promise<void> {
@@ -205,15 +227,15 @@ WantedBy=multi-user.target
     const unitPath = this.unitPath(deploymentId);
 
     // Stop and disable the service
-    await this.executor.exec(
+    await this.rootExec(
       `systemctl disable --now ${sq(unitName)} 2>/dev/null || true`,
     );
 
     // Remove the unit file
-    await this.executor.rm(unitPath);
+    await this.rootRm(unitPath);
 
     // Reload so systemd forgets about it
-    await this.executor.exec("systemctl daemon-reload");
+    await this.rootExec("systemctl daemon-reload");
 
     // Clean up artifact directory
     const artifactPath = await this.readArtifactPath(deploymentId);

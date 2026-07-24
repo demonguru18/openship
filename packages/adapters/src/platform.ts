@@ -266,17 +266,16 @@ async function createSelfHostedPlatform(config: PlatformConfig): Promise<Platfor
     provisionLock: config.provisionLock,
   });
 
-  // Bare deploys write systemd units under /etc/systemd/system and OpenResty
-  // conf under /usr/local/openresty. When the SSH user is non-root but has
-  // passwordless sudo, elevate those mutating ops. SystemManager keeps the
-  // raw executor — its installer elevates itself when needed (avoid double sudo).
-  let privilegedExecutor = executor;
+  // Bare build/transfer must stay as the SSH user (dirs under workDir). Elevating
+  // that path creates root-owned .builds and breaks tar extract. Only routing
+  // (OpenResty conf + reload) needs a privileged executor when canSudo.
+  let routingExecutor = executor;
   {
     const { resolveEnvironment } = await import("./system/environment");
     const profile = await resolveEnvironment(executor);
     if (profile.canSudo) {
       const { elevatedExecutor } = await import("./system/elevated-executor");
-      privilegedExecutor = elevatedExecutor(executor);
+      routingExecutor = elevatedExecutor(executor);
     }
   }
 
@@ -286,7 +285,7 @@ async function createSelfHostedPlatform(config: PlatformConfig): Promise<Platfor
     const { BareRuntime } = await import("./runtime/bare");
     runtime = new BareRuntime({
       ...config.bare,
-      executor: privilegedExecutor,
+      executor,
       systemManager: system,
     });
   } else {
@@ -298,7 +297,7 @@ async function createSelfHostedPlatform(config: PlatformConfig): Promise<Platfor
   const { routing, ssl } = await createInfraProvider(
     runtimeMode,
     config,
-    privilegedExecutor,
+    routingExecutor,
   );
 
   return {
