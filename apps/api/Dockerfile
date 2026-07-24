@@ -23,6 +23,29 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 FROM oven/bun:latest AS runner
 WORKDIR /app
 
+# Local-build deploys run git/dotnet/rsync inside this container. Without these
+# packages, every `docker compose build api` wipes ad-hoc installs and deploys
+# fail with "git: not found" / ".NET SDK verification failed".
+USER root
+RUN apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends \
+      git curl ca-certificates libicu72 \
+      rsync openssh-client \
+ || apt-get install -y -qq --no-install-recommends \
+      git curl ca-certificates libicu74 \
+      rsync openssh-client \
+ || apt-get install -y -qq --no-install-recommends \
+      git curl ca-certificates libicu-dev \
+      rsync openssh-client \
+ && curl -fsSL https://dot.net/v1/dotnet-install.sh \
+      | bash -s -- --channel 8.0 --install-dir /usr/local/share/dotnet \
+ && ln -sf /usr/local/share/dotnet/dotnet /usr/local/bin/dotnet \
+ && ln -sf /usr/local/share/dotnet/dotnet /usr/bin/dotnet \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV DOTNET_ROOT=/usr/local/share/dotnet
+ENV PATH="/usr/local/share/dotnet:${PATH}"
+
 # @repo/* are TypeScript-SOURCE workspace packages (package.json main =
 # src/index.ts) resolved via the ROOT package.json "workspaces" field — there
 # is NO node_modules/@repo; bun points straight at packages/*. tsup externalizes
