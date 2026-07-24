@@ -252,21 +252,29 @@ function gradleInstallPlan(profile: EnvironmentProfile): ToolchainInstallPlan {
 
 function dotnetInstallPlan(profile: EnvironmentProfile): ToolchainInstallPlan {
   if (profile.os === "linux") {
-    const ensureCurl =
+    // ICU is required for `dotnet --version` on minimal images; without it the
+    // install script can succeed while verification fails. Prefer the full
+    // binary path so a sparse PATH (e.g. API container) still verifies.
+    const ensureDeps =
       profile.packageManager === "apt"
-        ? "apt-get update -qq && apt-get install -y -qq curl ca-certificates"
+        ? "apt-get update -qq && apt-get install -y -qq curl ca-certificates libicu72 || apt-get install -y -qq curl ca-certificates libicu74 || apt-get install -y -qq curl ca-certificates libicu-dev"
         : profile.packageManager === "dnf"
-          ? "dnf install -y curl ca-certificates"
+          ? "dnf install -y curl ca-certificates libicu"
           : profile.packageManager === "yum"
-            ? "yum install -y curl ca-certificates"
+            ? "yum install -y curl ca-certificates libicu"
             : profile.packageManager === "apk"
-              ? "apk add --no-cache curl ca-certificates"
+              ? "apk add --no-cache curl ca-certificates icu-libs"
               : "true";
     return {
       supported: true,
-      installCommand:
-        `${ensureCurl} && curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/local/share/dotnet && ln -sf /usr/local/share/dotnet/dotnet /usr/local/bin/dotnet`,
-      verifyCommand: "dotnet --version",
+      installCommand: [
+        ensureDeps,
+        "curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/local/share/dotnet",
+        "ln -sf /usr/local/share/dotnet/dotnet /usr/local/bin/dotnet",
+        "ln -sf /usr/local/share/dotnet/dotnet /usr/bin/dotnet",
+      ].join(" && "),
+      verifyCommand:
+        "DOTNET_ROOT=/usr/local/share/dotnet /usr/bin/dotnet --version",
     };
   }
 
@@ -498,8 +506,9 @@ export const toolchainCatalog = {
     },
     dotnet: {
       label: ".NET SDK",
-      versionCommand: "dotnet --version",
-      parseVersion: (output: string) => output.trim(),
+      versionCommand:
+        "DOTNET_ROOT=/usr/local/share/dotnet /usr/bin/dotnet --version 2>/dev/null || DOTNET_ROOT=/usr/local/share/dotnet /usr/local/bin/dotnet --version 2>/dev/null || dotnet --version",
+      parseVersion: (output: string) => output.trim().split("\n").pop()!.trim(),
       missingMessage: ".NET SDK is not installed",
       installable: true,
     },
